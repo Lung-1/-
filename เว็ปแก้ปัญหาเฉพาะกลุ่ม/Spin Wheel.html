@@ -1,0 +1,1211 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Bill + Spin Wheel + OCR + PromptPay</title>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --card-bg: rgba(17, 24, 39, 0.85);
+      --border-glass: rgba(255, 255, 255, 0.08);
+      --accent: #38bdf8;
+      --accent-glow: rgba(56, 189, 248, 0.25);
+      --emerald: #10b981;
+      --amber: #f59e0b;
+      --rose: #f43f5e;
+      --purple: #a855f7;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      font-family: 'Prompt', sans-serif;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background-color: var(--bg-dark);
+      background-image:
+        radial-gradient(circle at 12% 15%, rgba(56, 189, 248, 0.16), transparent 35%),
+        radial-gradient(circle at 88% 85%, rgba(168, 85, 247, 0.15), transparent 35%),
+        radial-gradient(circle at 50% 95%, rgba(16, 185, 129, 0.12), transparent 40%);
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 28px 16px 48px;
+      color: var(--text-main);
+    }
+
+    .app-card {
+      width: 100%;
+      max-width: 470px;
+      background: var(--card-bg);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid var(--border-glass);
+      border-radius: 24px;
+      padding: 28px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 19px;
+      font-weight: 600;
+      background: linear-gradient(90deg, #fff, #38bdf8, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .badge {
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 99px;
+      background: rgba(168, 85, 247, 0.16);
+      color: #d8b4fe;
+      border: 1px solid rgba(168, 85, 247, 0.35);
+      font-weight: 500;
+    }
+
+    /* --- ส่วนวงล้อสุ่ม (Spin Wheel) --- */
+    .wheel-panel {
+      background: rgba(15, 23, 42, 0.82);
+      border: 1px solid rgba(168, 85, 247, 0.28);
+      border-radius: 20px;
+      padding: 18px;
+      margin-bottom: 18px;
+    }
+
+    .mode-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      background: rgba(9, 13, 22, 0.7);
+      padding: 4px;
+      border-radius: 12px;
+      margin-bottom: 16px;
+    }
+
+    .mode-tab {
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      padding: 8px 10px;
+      border-radius: 9px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .mode-tab.active {
+      background: linear-gradient(135deg, #7e22ce, #a855f7);
+      color: #fff;
+      font-weight: 600;
+      box-shadow: 0 4px 14px rgba(168, 85, 247, 0.35);
+    }
+
+    .wheel-stage {
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin: 8px auto 14px;
+      width: 250px;
+      height: 250px;
+    }
+
+    .pointer {
+      position: absolute;
+      top: -10px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 5;
+      width: 0;
+      height: 0;
+      border-left: 13px solid transparent;
+      border-right: 13px solid transparent;
+      border-top: 24px solid #f59e0b;
+      filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.6));
+    }
+
+    #wheelCanvas {
+      border-radius: 50%;
+      box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.08), 0 15px 30px rgba(0, 0, 0, 0.6);
+    }
+
+    .spin-btn {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #9333ea, #ec4899);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.2s;
+      box-shadow: 0 8px 20px rgba(236, 72, 153, 0.28);
+    }
+
+    .spin-btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 24px rgba(236, 72, 153, 0.42);
+    }
+
+    .spin-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .wheel-result {
+      margin-top: 12px;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.32);
+      border-radius: 12px;
+      padding: 10px 12px;
+      text-align: center;
+      font-size: 14px;
+      display: none;
+    }
+
+    .wheel-result strong {
+      color: #34d399;
+      font-size: 16px;
+    }
+
+    .apply-discount-btn {
+      margin-top: 8px;
+      background: rgba(16, 185, 129, 0.22);
+      border: 1px solid rgba(16, 185, 129, 0.5);
+      color: #a7f3d0;
+      padding: 5px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .apply-discount-btn:hover {
+      background: var(--emerald);
+      color: #090d16;
+    }
+
+    .players-box {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    .add-player-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .add-player-row input {
+      flex: 1;
+      background: rgba(9, 13, 22, 0.85);
+      border: 1px solid var(--border-glass);
+      border-radius: 10px;
+      padding: 8px 12px;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 400;
+    }
+
+    .add-player-row button {
+      background: rgba(56, 189, 248, 0.18);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      color: #e0f2fe;
+      padding: 0 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .player-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .player-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-glass);
+      padding: 4px 10px;
+      border-radius: 99px;
+      font-size: 12px;
+      color: #e2e8f0;
+    }
+
+    .player-tag button {
+      background: none;
+      border: none;
+      color: #94a3b8;
+      cursor: pointer;
+      font-size: 13px;
+      padding: 0;
+      line-height: 1;
+    }
+
+    .player-tag button:hover {
+      color: #f43f5e;
+    }
+
+    /* --- ส่วนสแกนใบเสร็จ OCR --- */
+    .ocr-box {
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px dashed rgba(56, 189, 248, 0.4);
+      border-radius: 18px;
+      padding: 16px;
+      margin-bottom: 18px;
+      text-align: center;
+    }
+
+    .ocr-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .ocr-btn {
+      background: rgba(56, 189, 248, 0.14);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      color: #e0f2fe;
+      padding: 9px 14px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .ocr-btn:hover {
+      background: rgba(56, 189, 248, 0.25);
+    }
+
+    .ocr-preview {
+      margin-top: 12px;
+      max-height: 140px;
+      border-radius: 10px;
+      display: none;
+      margin-left: auto;
+      margin-right: auto;
+      border: 1px solid var(--border-glass);
+    }
+
+    .ocr-status {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .detected-numbers {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 10px;
+    }
+
+    .num-pill {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: #a7f3d0;
+      padding: 4px 10px;
+      border-radius: 99px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .num-pill:hover {
+      background: var(--emerald);
+      color: #090d16;
+      font-weight: 600;
+    }
+
+    details.raw-ocr {
+      margin-top: 10px;
+      text-align: left;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    details.raw-ocr pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: rgba(9, 13, 22, 0.8);
+      padding: 8px;
+      border-radius: 8px;
+      max-height: 100px;
+      overflow-y: auto;
+      margin-top: 6px;
+    }
+
+    .field {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    input[type="number"], input[type="tel"] {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid var(--border-glass);
+      border-radius: 14px;
+      padding: 12px 48px 12px 16px;
+      color: #fff;
+      font-size: 17px;
+      font-weight: 600;
+      transition: all 0.2s ease;
+    }
+
+    input[type="number"]:focus, input[type="tel"]:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    .unit {
+      position: absolute;
+      right: 16px;
+      color: var(--text-muted);
+      font-size: 14px;
+      pointer-events: none;
+    }
+
+    .chips {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .chip {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-glass);
+      color: var(--text-muted);
+      padding: 6px 0;
+      border-radius: 10px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .chip:hover, .chip.active {
+      background: rgba(56, 189, 248, 0.15);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .split-control {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid var(--border-glass);
+      border-radius: 14px;
+      padding: 7px 14px;
+    }
+
+    .split-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      border: none;
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      font-size: 18px;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .split-btn:hover {
+      background: var(--accent);
+      color: #090d16;
+    }
+
+    .split-count {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .receipt {
+      margin-top: 20px;
+      background: linear-gradient(145deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.7));
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 18px;
+      padding: 18px;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    .row span:last-child {
+      color: var(--text-main);
+      font-weight: 500;
+    }
+
+    .row.discount span:last-child {
+      color: #f43f5e;
+    }
+
+    .divider {
+      height: 1px;
+      background: repeating-linear-gradient(90deg, rgba(255,255,255,0.15) 0, rgba(255,255,255,0.15) 6px, transparent 6px, transparent 12px);
+      margin: 12px 0;
+    }
+
+    .grand-total {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+
+    .grand-total .amount {
+      font-size: 26px;
+      font-weight: 700;
+      color: var(--emerald);
+      text-shadow: 0 0 20px rgba(16, 185, 129, 0.35);
+    }
+
+    .per-person {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      font-size: 14px;
+      color: var(--accent);
+    }
+
+    .qr-section {
+      margin-top: 18px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 18px;
+      padding: 18px;
+      text-align: center;
+      display: none;
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .qr-header {
+      background: #113566;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 8px;
+      display: inline-block;
+      margin-bottom: 12px;
+      letter-spacing: 0.5px;
+    }
+
+    .qr-box {
+      background: #ffffff;
+      padding: 14px;
+      border-radius: 14px;
+      display: inline-block;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+    }
+
+    .qr-note {
+      margin-top: 10px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .qr-note strong {
+      color: var(--emerald);
+      font-size: 16px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .btn-copy {
+      flex: 2;
+      padding: 13px;
+      border: none;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #0284c7, #38bdf8);
+      color: #090d16;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.2s;
+    }
+
+    .btn-copy:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 20px var(--accent-glow);
+    }
+
+    .btn-reset {
+      flex: 1;
+      padding: 13px;
+      border: 1px solid var(--border-glass);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text-muted);
+      font-weight: 500;
+      font-size: 14px;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .btn-reset:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-card">
+    <div class="header">
+      <h1>⚡ SMART BILL STUDIO</h1>
+      <span class="badge">SPIN WHEEL</span>
+    </div>
+
+    <!-- วงล้อสุ่ม ใครจ่ายมื้อนี้ / สุ่มส่วนลด -->
+    <div class="wheel-panel">
+      <div class="mode-tabs">
+        <button type="button" class="mode-tab active" id="tabWhoPays" onclick="switchWheelMode('who')">
+          🎲 ใครจ่ายมื้อนี้
+        </button>
+        <button type="button" class="mode-tab" id="tabDiscount" onclick="switchWheelMode('discount')">
+          🎁 สุ่มส่วนลด (%)
+        </button>
+      </div>
+
+      <div class="wheel-stage">
+        <div class="pointer"></div>
+        <canvas id="wheelCanvas" width="250" height="250"></canvas>
+      </div>
+
+      <button type="button" class="spin-btn" id="spinBtn" onclick="spinWheel()">
+        🎡 หมุนวงล้อเลย!
+      </button>
+
+      <div class="wheel-result" id="wheelResult"></div>
+
+      <div class="players-box" id="playersBox">
+        <div class="add-player-row">
+          <input type="text" id="newPlayerInput" placeholder="เพิ่มชื่อเพื่อน เช่น บอส, มายด์..." onkeydown="if(event.key==='Enter') addPlayer()" />
+          <button type="button" onclick="addPlayer()">+ เพิ่ม</button>
+        </div>
+        <div class="player-tags" id="playerTags"></div>
+      </div>
+    </div>
+
+    <!-- กล่องสแกนใบเสร็จด้วยกล้อง / อัปโหลดรูป -->
+    <div class="ocr-box">
+      <div class="ocr-actions">
+        <button type="button" class="ocr-btn" onclick="document.getElementById('uploadInput').click()">
+          🖼️ อัปโหลดรูปบิล
+        </button>
+        <button type="button" class="ocr-btn" onclick="document.getElementById('cameraInput').click()">
+          📷 ถ่ายรูปบิล
+        </button>
+      </div>
+      <input type="file" id="uploadInput" accept="image/*" style="display: none;" onchange="handleReceiptImage(event)" />
+      <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display: none;" onchange="handleReceiptImage(event)" />
+
+      <img id="ocrPreview" class="ocr-preview" alt="ตัวอย่างรูปใบเสร็จ" />
+      <div class="ocr-status" id="ocrStatus">เลือกรูปใบเสร็จหรือถ่ายรูป เพื่อให้ระบบช่วยอ่านตัวเลขยอดเงิน</div>
+      <div class="detected-numbers" id="detectedNumbers"></div>
+
+      <details class="raw-ocr" id="rawOcrDetails" style="display: none;">
+        <summary>ดูข้อความที่อ่านได้จากใบเสร็จ</summary>
+        <pre id="rawOcrText"></pre>
+      </details>
+    </div>
+
+    <div class="field">
+      <label>ยอดรวมค่าอาหารทั้งหมด</label>
+      <div class="input-wrapper">
+        <input type="number" id="foodTotal" placeholder="0.00" min="0" step="0.01" oninput="calculate()" />
+        <span class="unit">฿</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>ส่วนลด (%)</label>
+      <div class="input-wrapper">
+        <input type="number" id="discount" value="0" min="0" max="100" step="0.1" oninput="calculate()" />
+        <span class="unit">%</span>
+      </div>
+      <div class="chips">
+        <button type="button" class="chip active" onclick="setVal('discount', 0, this)">0%</button>
+        <button type="button" class="chip" onclick="setVal('discount', 5, this)">5%</button>
+        <button type="button" class="chip" onclick="setVal('discount', 10, this)">10%</button>
+        <button type="button" class="chip" onclick="setVal('discount', 15, this)">15%</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>ภาษีมูลค่าเพิ่ม (VAT)</label>
+      <div class="input-wrapper">
+        <input type="number" id="vat" value="7" min="0" max="100" step="0.1" oninput="calculate()" />
+        <span class="unit">%</span>
+      </div>
+      <div class="chips">
+        <button type="button" class="chip" onclick="setVal('vat', 0, this)">ไม่คิด VAT</button>
+        <button type="button" class="chip active" onclick="setVal('vat', 7, this)">VAT 7%</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>หารค่าอาหาร (จำนวนคน)</label>
+      <div class="split-control">
+        <button type="button" class="split-btn" onclick="changePeople(-1)">−</button>
+        <span class="split-count"><span id="peopleCount">1</span> คน</span>
+        <button type="button" class="split-btn" onclick="changePeople(1)">+</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>เบอร์พร้อมเพย์ / เลขบัตรประชาชนผู้รับเงิน</label>
+      <div class="input-wrapper">
+        <input type="tel" id="promptpayId" placeholder="เช่น 0812345678" maxlength="13" oninput="calculate()" />
+        <span class="unit">ID</span>
+      </div>
+    </div>
+
+    <div class="receipt">
+      <div class="row">
+        <span>ค่าอาหารเริ่มต้น</span>
+        <span id="resSubtotal">0.00 ฿</span>
+      </div>
+      <div class="row discount">
+        <span>ส่วนลด</span>
+        <span id="resDiscount">-0.00 ฿</span>
+      </div>
+      <div class="row">
+        <span>VAT</span>
+        <span id="resVat">+0.00 ฿</span>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="grand-total">
+        <span class="label">ยอดสุทธิ</span>
+        <span class="amount" id="resGrandTotal">0.00 ฿</span>
+      </div>
+
+      <div class="per-person" id="perPersonRow" style="display: none;">
+        <span>เฉลี่ยคนละ</span>
+        <strong id="resPerPerson">0.00 ฿</strong>
+      </div>
+    </div>
+
+    <div class="qr-section" id="qrSection">
+      <div class="qr-header">🇹🇭 THAI QR PAYMENT (พร้อมเพย์)</div>
+      <br />
+      <div class="qr-box" id="qrcode"></div>
+      <div class="qr-note">
+        สแกนจ่ายยอด <strong id="qrAmountText">0.00 ฿</strong> <span id="qrTargetText"></span>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button type="button" class="btn-reset" onclick="resetForm()">ล้างค่า</button>
+      <button type="button" class="btn-copy" id="copyBtn" onclick="copySummary()">📋 คัดลอกสรุปบิล</button>
+    </div>
+  </div>
+
+  <script>
+    let people = 1;
+    let wheelMode = 'who'; // 'who' หรือ 'discount'
+    let players = ['คน 1', 'คน 2', 'คน 3', 'คน 4'];
+    const discountOptions = [
+      { label: '0%', value: 0 },
+      { label: '5%', value: 5 },
+      { label: '10%', value: 10 },
+      { label: '15%', value: 15 },
+      { label: '20%', value: 20 },
+      { label: '25%', value: 25 }
+    ];
+    const wheelColors = ['#0284c7', '#7e22ce', '#059669', '#d97706', '#e11d48', '#2563eb', '#0d9488', '#9333ea'];
+
+    let currentAngle = 0;
+    let isSpinning = false;
+    let audioCtx = null;
+
+    function getAudioCtx() {
+      if (!audioCtx) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) audioCtx = new AudioContext();
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      return audioCtx;
+    }
+
+    function playTickSound() {
+      const ctx = getAudioCtx();
+      if (!ctx) return;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(780, ctx.currentTime);
+      gain.gain.setValueAtTime(0.06, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.045);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.05);
+    }
+
+    function playWinSound() {
+      const ctx = getAudioCtx();
+      if (!ctx) return;
+      const notes = [523.25, 659.25, 783.99, 1046.5];
+      notes.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const start = ctx.currentTime + idx * 0.09;
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, start);
+        gain.gain.setValueAtTime(0.09, start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.25);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + 0.26);
+      });
+    }
+
+    function getWheelItems() {
+      if (wheelMode === 'who') {
+        return players.length > 0 ? players : ['ไม่มีรายชื่อ'];
+      }
+      return discountOptions.map(d => d.label);
+    }
+
+    function drawWheel() {
+      const canvas = document.getElementById('wheelCanvas');
+      const ctx = canvas.getContext('2d');
+      const items = getWheelItems();
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      const radius = cx - 6;
+      const sliceAngle = (Math.PI * 2) / items.length;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      items.forEach((label, i) => {
+        const startAngle = currentAngle + i * sliceAngle;
+        const endAngle = startAngle + sliceAngle;
+
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, radius, startAngle, endAngle);
+        ctx.closePath();
+        ctx.fillStyle = wheelColors[i % wheelColors.length];
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+        ctx.stroke();
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(startAngle + sliceAngle / 2);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '600 13px Prompt, sans-serif';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+        ctx.shadowBlur = 4;
+        const shortLabel = label.length > 10 ? label.slice(0, 9) + '…' : label;
+        ctx.fillText(shortLabel, radius - 14, 4);
+        ctx.restore();
+      });
+
+      // จุดศูนย์กลางวงล้อ
+      ctx.beginPath();
+      ctx.arc(cx, cy, 18, 0, Math.PI * 2);
+      ctx.fillStyle = '#0f172a';
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#f8fafc';
+      ctx.stroke();
+    }
+
+    function renderPlayers() {
+      const container = document.getElementById('playerTags');
+      container.innerHTML = '';
+      players.forEach((name, idx) => {
+        const tag = document.createElement('span');
+        tag.className = 'player-tag';
+        tag.innerHTML = `${name} <button type="button" title="ลบ" onclick="removePlayer(${idx})">×</button>`;
+        container.appendChild(tag);
+      });
+      drawWheel();
+    }
+
+    function addPlayer() {
+      if (isSpinning) return;
+      const input = document.getElementById('newPlayerInput');
+      const name = input.value.trim();
+      if (!name) return;
+      players.push(name);
+      input.value = '';
+      renderPlayers();
+    }
+
+    function removePlayer(idx) {
+      if (isSpinning || players.length <= 2) return;
+      players.splice(idx, 1);
+      renderPlayers();
+    }
+
+    function switchWheelMode(mode) {
+      if (isSpinning) return;
+      wheelMode = mode;
+      document.getElementById('tabWhoPays').classList.toggle('active', mode === 'who');
+      document.getElementById('tabDiscount').classList.toggle('active', mode === 'discount');
+      document.getElementById('playersBox').style.display = mode === 'who' ? 'block' : 'none';
+      document.getElementById('wheelResult').style.display = 'none';
+      drawWheel();
+    }
+
+    function spinWheel() {
+      if (isSpinning) return;
+      const items = getWheelItems();
+      if (items.length < 2) return;
+
+      isSpinning = true;
+      document.getElementById('spinBtn').disabled = true;
+      document.getElementById('wheelResult').style.display = 'none';
+
+      const sliceAngle = (Math.PI * 2) / items.length;
+      const extraSpins = (5 + Math.random() * 4) * Math.PI * 2;
+      const randomOffset = Math.random() * Math.PI * 2;
+      const targetAngle = currentAngle + extraSpins + randomOffset;
+      const startAngle = currentAngle;
+      const duration = 3600;
+      const startTime = performance.now();
+      let lastTickIndex = -1;
+
+      function animate(now) {
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        // easeOutQuart ให้หมุนเร็วแล้วชะลอสมูท
+        const eased = 1 - Math.pow(1 - progress, 4);
+        currentAngle = startAngle + (targetAngle - startAngle) * eased;
+        drawWheel();
+
+        // เข็มชี้ชี้ที่ด้านบน (มุม -Math.PI / 2 ในระบบพิกัด Canvas)
+        const pointerAngle = ((-Math.PI / 2 - currentAngle) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+        const activeIndex = Math.floor(pointerAngle / sliceAngle) % items.length;
+        if (activeIndex !== lastTickIndex) {
+          lastTickIndex = activeIndex;
+          playTickSound();
+        }
+
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        } else {
+          isSpinning = false;
+          document.getElementById('spinBtn').disabled = false;
+          playWinSound();
+          showWheelWinner(items[activeIndex], activeIndex);
+        }
+      }
+
+      requestAnimationFrame(animate);
+    }
+
+    function showWheelWinner(winnerLabel, index) {
+      const resultBox = document.getElementById('wheelResult');
+      resultBox.style.display = 'block';
+
+      if (wheelMode === 'who') {
+        resultBox.innerHTML = `🎉 ผู้โชคดีมื้อนี้คือ: <strong>${winnerLabel}</strong>`;
+      } else {
+        const discVal = discountOptions[index].value;
+        resultBox.innerHTML = `🎁 สุ่มได้ส่วนลด: <strong>${winnerLabel}</strong><br><button type="button" class="apply-discount-btn" onclick="applySpedDiscount(${discVal})">นำไปใช้กับบิลนี้เลย</button>`;
+      }
+    }
+
+    function applySpedDiscount(val) {
+      document.getElementById('discount').value = val;
+      calculate();
+    }
+
+    // --- ฟีเจอร์หลักเดิม ---
+    function formatMoney(num) {
+      return num.toLocaleString('th-TH', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }) + ' ฿';
+    }
+
+    function setVal(id, value, btn) {
+      document.getElementById(id).value = value;
+      btn.parentElement.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      calculate();
+    }
+
+    function changePeople(delta) {
+      people = Math.max(1, people + delta);
+      document.getElementById('peopleCount').textContent = people;
+      calculate();
+    }
+
+    async function handleReceiptImage(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const preview = document.getElementById('ocrPreview');
+      const statusEl = document.getElementById('ocrStatus');
+      const pillsEl = document.getElementById('detectedNumbers');
+      const rawDetails = document.getElementById('rawOcrDetails');
+      const rawTextEl = document.getElementById('rawOcrText');
+
+      preview.src = URL.createObjectURL(file);
+      preview.style.display = 'block';
+      pillsEl.innerHTML = '';
+      rawDetails.style.display = 'none';
+      statusEl.textContent = '⏳ กำลังสแกนอ่านตัวอักษรและตัวเลขบนใบเสร็จ...';
+
+      try {
+        const result = await Tesseract.recognize(file, 'tha+eng', {
+          logger: m => {
+            if (m.status === 'recognizing text') {
+              statusEl.textContent = `⏳ กำลังอ่านใบเสร็จ... ${Math.round(m.progress * 100)}%`;
+            }
+          }
+        });
+
+        const text = result.data.text || '';
+        rawTextEl.textContent = text.trim() || '(ไม่พบข้อความ)';
+        rawDetails.style.display = 'block';
+
+        const candidates = extractAmounts(text);
+        if (candidates.length > 0) {
+          const bestGuess = Math.max(...candidates);
+          document.getElementById('foodTotal').value = bestGuess.toFixed(2);
+          calculate();
+
+          statusEl.innerHTML = `✅ อ่านสำเร็จ! เติมยอด <strong>${formatMoney(bestGuess)}</strong> ให้แล้ว (กดเลือกตัวเลขอื่นได้ด้านล่าง):`;
+          candidates.slice().reverse().forEach(val => {
+            const pill = document.createElement('button');
+            pill.type = 'button';
+            pill.className = 'num-pill';
+            pill.textContent = formatMoney(val);
+            pill.onclick = () => {
+              document.getElementById('foodTotal').value = val.toFixed(2);
+              calculate();
+            };
+            pillsEl.appendChild(pill);
+          });
+        } else {
+          statusEl.textContent = '⚠️ อ่านข้อความได้แต่ไม่พบตัวเลขยอดเงินที่ชัดเจน ลองกรอกยอดเองได้เลยครับ';
+        }
+      } catch (err) {
+        statusEl.textContent = '❌ เกิดข้อผิดพลาดในการอ่านรูป ลองถ่ายให้ชัดขึ้นหรือกรอกยอดเองครับ';
+      }
+    }
+
+    function extractAmounts(rawText) {
+      const matches = rawText.match(/\b\d{1,3}(?:,\d{3})*(?:\.\d{1,2})|\b\d+\.\d{2}\b/g) || [];
+      const parsed = matches
+        .map(s => parseFloat(s.replace(/,/g, '')))
+        .filter(n => !isNaN(n) && n > 0 && n < 1000000);
+      return [...new Set(parsed)];
+    }
+
+    function formatTLV(tag, value) {
+      const len = value.length.toString().padStart(2, '0');
+      return tag + len + value;
+    }
+
+    function crc16(data) {
+      let crc = 0xFFFF;
+      for (let i = 0; i < data.length; i++) {
+        crc ^= data.charCodeAt(i) << 8;
+        for (let j = 0; j < 8; j++) {
+          if ((crc & 0x8000) !== 0) {
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF;
+          } else {
+            crc = (crc << 1) & 0xFFFF;
+          }
+        }
+      }
+      return crc.toString(16).toUpperCase().padStart(4, '0');
+    }
+
+    function generatePromptPayPayload(target, amount) {
+      const cleanId = target.replace(/[^0-9]/g, '');
+      let merchantId = '';
+
+      if (cleanId.length === 10 && cleanId.startsWith('0')) {
+        merchantId = formatTLV('01', '0066' + cleanId.substring(1));
+      } else if (cleanId.length === 13) {
+        merchantId = formatTLV('02', cleanId);
+      } else {
+        return null;
+      }
+
+      const aid = formatTLV('00', 'A000000677010111');
+      const merchantInfo = formatTLV('29', aid + merchantId);
+
+      let payload = '';
+      payload += formatTLV('00', '01');
+      payload += formatTLV('01', amount > 0 ? '12' : '11');
+      payload += merchantInfo;
+      payload += formatTLV('53', '764');
+      if (amount > 0) {
+        payload += formatTLV('54', amount.toFixed(2));
+      }
+      payload += formatTLV('58', 'TH');
+      payload += '6304';
+
+      return payload + crc16(payload);
+    }
+
+    function renderPromptPayQR(target, amountToPay) {
+      const qrSection = document.getElementById('qrSection');
+      const qrContainer = document.getElementById('qrcode');
+      const payload = generatePromptPayPayload(target, amountToPay);
+
+      if (!payload || amountToPay <= 0) {
+        qrSection.style.display = 'none';
+        return;
+      }
+
+      qrContainer.innerHTML = '';
+      new QRCode(qrContainer, {
+        text: payload,
+        width: 180,
+        height: 180,
+        colorDark: '#0f172a',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
+      });
+
+      document.getElementById('qrAmountText').textContent = formatMoney(amountToPay);
+      document.getElementById('qrTargetText').textContent = people > 1 ? '(ยอดหารต่อคน)' : '(ยอดรวมทั้งหมด)';
+      qrSection.style.display = 'block';
+    }
+
+    function calculate() {
+      const foodTotal = parseFloat(document.getElementById('foodTotal').value) || 0;
+      const discountPct = parseFloat(document.getElementById('discount').value) || 0;
+      const vatPct = parseFloat(document.getElementById('vat').value) || 0;
+      const promptpayId = document.getElementById('promptpayId').value.trim();
+
+      const discountAmount = foodTotal * (discountPct / 100);
+      const afterDiscount = Math.max(0, foodTotal - discountAmount);
+      const vatAmount = afterDiscount * (vatPct / 100);
+      const grandTotal = afterDiscount + vatAmount;
+      const perPerson = grandTotal / people;
+
+      document.getElementById('resSubtotal').textContent = formatMoney(foodTotal);
+      document.getElementById('resDiscount').textContent = '-' + formatMoney(discountAmount);
+      document.getElementById('resVat').textContent = '+' + formatMoney(vatAmount);
+      document.getElementById('resGrandTotal').textContent = formatMoney(grandTotal);
+
+      const perPersonRow = document.getElementById('perPersonRow');
+      if (people > 1) {
+        perPersonRow.style.display = 'flex';
+        document.getElementById('resPerPerson').textContent = formatMoney(perPerson);
+      } else {
+        perPersonRow.style.display = 'none';
+      }
+
+      renderPromptPayQR(promptpayId, perPerson);
+    }
+
+    function resetForm() {
+      document.getElementById('foodTotal').value = '';
+      document.getElementById('discount').value = 0;
+      document.getElementById('vat').value = 7;
+      document.getElementById('ocrPreview').style.display = 'none';
+      document.getElementById('detectedNumbers').innerHTML = '';
+      document.getElementById('rawOcrDetails').style.display = 'none';
+      document.getElementById('wheelResult').style.display = 'none';
+      document.getElementById('ocrStatus').textContent = 'เลือกรูปใบเสร็จหรือถ่ายรูป เพื่อให้ระบบช่วยอ่านตัวเลขยอดเงิน';
+      people = 1;
+      document.getElementById('peopleCount').textContent = 1;
+      calculate();
+    }
+
+    function copySummary() {
+      const total = document.getElementById('resGrandTotal').textContent;
+      const food = document.getElementById('resSubtotal').textContent;
+      const disc = document.getElementById('resDiscount').textContent;
+      const vat = document.getElementById('resVat').textContent;
+      const pp = document.getElementById('promptpayId').value.trim();
+
+      let text = `🧾 สรุปค่าอาหาร\n• ค่าอาหาร: ${food}\n• ส่วนลด: ${disc}\n• VAT: ${vat}\n💰 ยอดสุทธิ: ${total}`;
+      if (people > 1) {
+        const per = document.getElementById('resPerPerson').textContent;
+        text += `\n👥 หาร ${people} คน ตกคนละ: ${per}`;
+      }
+      if (pp) {
+        text += `\n📲 พร้อมเพย์: ${pp}`;
+      }
+
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('copyBtn');
+        btn.textContent = '✅ คัดลอกแล้ว!';
+        setTimeout(() => btn.textContent = '📋 คัดลอกสรุปบิล', 1800);
+      });
+    }
+
+    // เริ่มต้นวาดวงล้อ
+    renderPlayers();
+  </script>
+</body>
+</html>
